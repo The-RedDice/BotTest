@@ -46,6 +46,42 @@ Le bot détecte et envoie des messages personnalisés pour :
    node index.js
    ```
 
+## Setup sur Oracle Cloud (Ubuntu)
+
+Voici la marche à suivre pour héberger le bot sur une instance Oracle Cloud Ubuntu :
+
+1. **Installation de Node.js** :
+   ```bash
+   sudo apt update
+   sudo apt install -y ca-certificates curl gnupg
+   sudo mkdir -p /etc/apt/keyrings
+   curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | sudo gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
+   NODE_MAJOR=20
+   echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_$NODE_MAJOR.x nodistro main" | sudo tee /etc/apt/sources.list.d/nodesource.list
+   sudo apt update
+   sudo apt install nodejs -y
+   ```
+
+2. **Récupération du code** :
+   Clonez votre dépôt ou transférez les fichiers via SCP/SFTP.
+
+3. **Installation des dépendances** :
+   ```bash
+   cd chemin/vers/le/bot
+   npm install
+   ```
+
+4. **Configuration** :
+   Créez le fichier `.env` comme expliqué plus haut.
+
+5. **Gestion du processus avec PM2** (pour que le bot tourne 24h/24) :
+   ```bash
+   sudo npm install -g pm2
+   pm2 start index.js --name "bot-ef"
+   pm2 save
+   pm2 startup
+   ```
+
 Note : Le dossier `node_modules` contient les bibliothèques nécessaires au fonctionnement du bot mais ne doit pas être modifié ou inclus dans vos transferts de code (utilisez `npm install` pour le régénérer).
 
 Vive l'Empire ! 🇫🇷
