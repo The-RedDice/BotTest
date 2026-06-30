@@ -10,13 +10,16 @@ const {
 } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
+const axios = require('axios');
 
 // --- PERSISTENCE ---
 const CONFIG_PATH = path.join(__dirname, 'config.json');
 let config = {
     targetUserId: process.env.TARGET_USER_ID || '1401153828195139757',
     logChannelId: null,
-    adaptiveMode: false
+    adaptiveMode: false,
+    aiEnabled: false,
+    aiModel: "google/gemma-7b-it:free"
 };
 
 function loadConfig() {
@@ -32,6 +35,26 @@ function saveConfig() {
 }
 loadConfig();
 
+// --- AI INTEGRATION (OPENROUTER) ---
+async function generateAIMessage(prompt) {
+    if (!process.env.OPENROUTER_API_KEY) return null;
+    try {
+        const response = await axios.post("https://openrouter.ai/api/v1/chat/completions", {
+            model: config.aiModel,
+            messages: [{ role: "user", content: prompt }]
+        }, {
+            headers: {
+                "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
+                "Content-Type": "application/json"
+            }
+        });
+        return response.data.choices[0].message.content.trim();
+    } catch (err) {
+        console.error("Erreur OpenRouter:", err.response?.data || err.message);
+        return null;
+    }
+}
+
 // --- BOT SETUP ---
 const client = new Client({
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildPresences, GatewayIntentBits.GuildMembers],
@@ -39,7 +62,6 @@ const client = new Client({
 
 const REMINDER_INTERVAL = 30 * 60 * 1000;
 
-// --- MESSAGES & CONFIG JEUX ---
 const GAME_CONFIGS = [
     {
         key: 'Cyberpunk',
@@ -83,18 +105,16 @@ const GAME_CONFIGS = [
     }
 ];
 
-const activeReminders = new Map(); // userId -> { gameKey, intervalId, count }
+const activeReminders = new Map();
 
-// --- LOGGING ---
 async function logToChannel(message) {
     if (!config.logChannelId) return;
     try {
         const channel = await client.channels.fetch(config.logChannelId);
         if (channel?.isTextBased()) await channel.send(`📜 **[LOGS EMPIRE]** ${message}`);
-    } catch (err) { console.error("Erreur logs:", err); }
+    } catch (err) {}
 }
 
-// --- UTILS ---
 function getGameConfig(activities) {
     if (!activities) return null;
     for (const game of GAME_CONFIGS) {
@@ -103,11 +123,11 @@ function getGameConfig(activities) {
     return null;
 }
 
-// --- SLASH COMMANDS ---
 const commands = [
     new SlashCommandBuilder().setName('config-target').setDescription('ID de l\'utilisateur à surveiller').addStringOption(o => o.setName('user_id').setDescription('ID Discord').setRequired(true)).setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
     new SlashCommandBuilder().setName('config-logs').setDescription('Salon de logs').addChannelOption(o => o.setName('channel').setDescription('Salon textuel').setRequired(true)).setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
     new SlashCommandBuilder().setName('config-adaptive').setDescription('Active/Désactive le mode adaptatif (énervement)').addBooleanOption(o => o.setName('enabled').setDescription('Activer ?').setRequired(true)).setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+    new SlashCommandBuilder().setName('config-ai').setDescription('Configure l\'IA OpenRouter').addBooleanOption(o => o.setName('enabled').setDescription('Activer l\'IA ?').setRequired(true)).addStringOption(o => o.setName('model').setDescription('Modèle OpenRouter (ex: google/gemma-7b-it:free)')).setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
     new SlashCommandBuilder().setName('status').setDescription('Affiche la configuration').setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
 ].map(c => c.toJSON());
 
@@ -115,45 +135,39 @@ async function registerCommands() {
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
     try {
         await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { body: commands });
-        console.log('Commands enregistrées.');
     } catch (e) { console.error(e); }
 }
 
-// --- HANDLERS ---
 async function handlePresenceChange(oldPresence, newPresence) {
     if (!newPresence || newPresence.userId !== config.targetUserId) return;
-
     const gameConfig = getGameConfig(newPresence.activities);
     const current = activeReminders.get(newPresence.userId);
 
     if (gameConfig) {
         if (!current || current.gameKey !== gameConfig.key) {
             if (current) clearInterval(current.intervalId);
-
             await logToChannel(`Début de session : **${gameConfig.key}** pour <@${newPresence.userId}>.`);
-
-            // Premier rappel
             sendReminder(newPresence.userId, gameConfig, 1);
-
             const intervalId = setInterval(() => {
                 const session = activeReminders.get(newPresence.userId);
-                if (session) {
-                    session.count++;
-                    sendReminder(newPresence.userId, gameConfig, session.count);
-                }
+                if (session) { session.count++; sendReminder(newPresence.userId, gameConfig, session.count); }
             }, REMINDER_INTERVAL);
-
             activeReminders.set(newPresence.userId, { gameKey: gameConfig.key, intervalId, count: 1 });
         }
     } else if (current) {
-        // Félicitations
         try {
             const user = await client.users.fetch(newPresence.userId);
             const game = GAME_CONFIGS.find(g => g.key === current.gameKey);
-            await user.send(`🇫🇷 **VICTOIRE DE L'EMPIRE** 🇫🇷\n\n${game ? game.congrats : "Bien joué pour avoir arrêté de jouer !"}`);
+
+            let content = game ? game.congrats : "Bien joué !";
+            if (config.aiEnabled && process.env.OPENROUTER_API_KEY) {
+                const aiMsg = await generateAIMessage(`Tu es un officier de l'Empire Français. L'utilisateur vient d'arrêter de jouer à ${current.gameKey}. Félicite-le très brièvement et dis-lui de retourner développer le bot de l'EF.`);
+                if (aiMsg) content = aiMsg;
+            }
+
+            await user.send(`🇫🇷 **VICTOIRE DE L'EMPIRE** 🇫🇷\n\n${content}`);
             await logToChannel(`Fin de session (**${current.gameKey}**). Utilisateur félicité.`);
         } catch (e) {}
-
         clearInterval(current.intervalId);
         activeReminders.delete(newPresence.userId);
     }
@@ -165,27 +179,36 @@ async function sendReminder(userId, game, count) {
         if (!user) return;
 
         let content = "";
-        if (config.adaptiveMode) {
-            // Choix du niveau de colère
-            const levelIdx = count >= 3 ? 2 : (count >= 2 ? 1 : 0);
-            const msgs = game.levels[levelIdx];
-            content = msgs[Math.floor(Math.random() * msgs.length)];
-        } else {
-            // Mode normal : mélange de tous les niveaux
-            const allMsgs = game.levels.flat();
-            content = allMsgs[Math.floor(Math.random() * allMsgs.length)];
+        if (config.aiEnabled && process.env.OPENROUTER_API_KEY) {
+            let tone = "ferme et patriotique";
+            if (config.adaptiveMode) {
+                if (count >= 3) tone = "FURIEUX, HURLANT, ACCUSANT DE TRAHISON";
+                else if (count >= 2) tone = "très agacé et impatient";
+            }
+            const prompt = `Tu es un officier de l'Empire Français. L'utilisateur est en train de jouer à ${game.key} au lieu de développer le bot de l'EF. C'est son rappel n°${count}. Ton ton est ${tone}. Ordonne-lui brièvement de quitter son jeu et de retourner au travail. Ne fais pas de longs discours.`;
+            const aiMsg = await generateAIMessage(prompt);
+            if (aiMsg) content = aiMsg;
+        }
+
+        if (!content) {
+            if (config.adaptiveMode) {
+                const levelIdx = count >= 3 ? 2 : (count >= 2 ? 1 : 0);
+                const msgs = game.levels[levelIdx];
+                content = msgs[Math.floor(Math.random() * msgs.length)];
+            } else {
+                const allMsgs = game.levels.flat();
+                content = allMsgs[Math.floor(Math.random() * allMsgs.length)];
+            }
         }
 
         await user.send(`🇫🇷 **MESSAGE DE L'EMPIRE** 🇫🇷\n\n${content}`);
-        console.log(`Rappel [${game.key}] #${count} envoyé à ${user.tag} (Mode: ${config.adaptiveMode ? 'Adaptatif' : 'Normal'})`);
-    } catch (e) { console.error("Erreur envoi MP:", e); }
+        console.log(`Rappel [${game.key}] #${count} envoyé à ${user.tag} (AI: ${config.aiEnabled})`);
+    } catch (e) { console.error(e); }
 }
 
-// --- EVENTS ---
 client.once('ready', async () => {
     console.log(`Bot prêt : ${client.user.tag}`);
     if (process.env.CLIENT_ID) await registerCommands();
-
     const guilds = await client.guilds.fetch();
     for (const [gid] of guilds) {
         const g = await client.guilds.fetch(gid);
@@ -200,7 +223,6 @@ client.on('presenceUpdate', handlePresenceChange);
 
 client.on('interactionCreate', async interaction => {
     if (!interaction.isChatInputCommand()) return;
-
     if (interaction.commandName === 'config-target') {
         config.targetUserId = interaction.options.getString('user_id');
         saveConfig();
@@ -208,23 +230,26 @@ client.on('interactionCreate', async interaction => {
         activeReminders.clear();
         await interaction.reply({ content: `✅ Cible : <@${config.targetUserId}>`, ephemeral: true });
     }
-
     if (interaction.commandName === 'config-logs') {
-        const channel = interaction.options.getChannel('channel');
-        config.logChannelId = channel.id;
+        config.logChannelId = interaction.options.getChannel('channel').id;
         saveConfig();
-        await interaction.reply({ content: `✅ Logs : ${channel}`, ephemeral: true });
+        await interaction.reply({ content: `✅ Logs configurés.`, ephemeral: true });
     }
-
     if (interaction.commandName === 'config-adaptive') {
         config.adaptiveMode = interaction.options.getBoolean('enabled');
         saveConfig();
-        await interaction.reply({ content: `✅ Mode adaptatif : **${config.adaptiveMode ? 'Activé' : 'Désactivé'}**`, ephemeral: true });
+        await interaction.reply({ content: `✅ Mode adaptatif : **${config.adaptiveMode}**`, ephemeral: true });
     }
-
+    if (interaction.commandName === 'config-ai') {
+        config.aiEnabled = interaction.options.getBoolean('enabled');
+        const model = interaction.options.getString('model');
+        if (model) config.aiModel = model;
+        saveConfig();
+        await interaction.reply({ content: `✅ IA **${config.aiEnabled ? 'Activée' : 'Désactivée'}** (Modèle: ${config.aiModel})`, ephemeral: true });
+    }
     if (interaction.commandName === 'status') {
         await interaction.reply({
-            content: `📊 **Statut Empire** :\n- **Cible** : <@${config.targetUserId}>\n- **Logs** : ${config.logChannelId ? `<#${config.logChannelId}>` : 'Non configuré'}\n- **Mode Adaptatif** : ${config.adaptiveMode ? 'Activé' : 'Désactivé'}`,
+            content: `📊 **Statut Empire** :\n- **Cible** : <@${config.targetUserId}>\n- **Logs** : ${config.logChannelId ? `<#${config.logChannelId}>` : 'Non'}\n- **Adaptatif** : ${config.adaptiveMode}\n- **IA** : ${config.aiEnabled} (${config.aiModel})`,
             ephemeral: true
         });
     }

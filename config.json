@@ -1,5 +1,7 @@
 {
   "targetUserId": "1401153828195139757",
   "logChannelId": null,
-  "adaptiveMode": false
+  "adaptiveMode": false,
+  "aiEnabled": false,
+  "aiModel": "google/gemma-7b-it:free"
 }
