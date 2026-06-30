@@ -1,25 +1,13 @@
 {
-  "name": "app",
+  "name": "bot-rappel-ef",
   "version": "1.0.0",
-  "description": "",
+  "description": "Bot Discord de rappel patriotique pour le développement du bot de l'EF",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node index.js"
   },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/The-RedDice/BotTest.git"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
-  "bugs": {
-    "url": "https://github.com/The-RedDice/BotTest/issues"
-  },
-  "homepage": "https://github.com/The-RedDice/BotTest#readme",
   "dependencies": {
-    "discord.js": "^14.26.4",
-    "dotenv": "^17.4.2"
+    "discord.js": "^14.14.1",
+    "dotenv": "^16.4.5"
   }
 }
