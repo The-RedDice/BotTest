@@ -10,7 +10,7 @@ const client = new Client({
 });
 
 const TARGET_USER_ID = process.env.TARGET_USER_ID;
-const REMINDER_INTERVAL = 20 * 60 * 1000; // 20 minutes
+const REMINDER_INTERVAL = 30 * 60 * 1000; // 30 minutes
 
 // Configuration des jeux et messages
 const GAME_CONFIGS = [
@@ -39,6 +39,15 @@ const GAME_CONFIGS = [
             "Soldat ! Récupérer des objets pour une corporation ? L'Empire est la seule entité digne de votre dévouement ! Revenez sur le bot de l'EF.",
             "L'Empereur n'accepte aucun retard. Cessez vos expéditions dans R.E.P.O et concentrez-vous sur l'objectif principal : le bot de l'EF !",
             "Citoyen ! Votre quota de code pour l'Empire n'est pas atteint. Quittez R.E.P.O et servez la France sur le bot de l'EF !"
+        ]
+    },
+    {
+        key: 'phasmophobia',
+        searchTerms: ['phasmophobia'],
+        messages: [
+            "Soldat ! Les seuls fantômes qui doivent vous préoccuper sont les bugs du bot de l'EF ! Lâchez votre lampe torche et reprenez le code.",
+            "L'Empire n'a pas peur des esprits, mais il craint le retard de ses projets. Quittez cette chasse aux fantômes et servez la patrie sur le bot de l'EF !",
+            "Citoyen ! Identifier des spectres ne fera pas avancer la France. Votre mission est claire : développer le bot de l'EF. Au rapport !"
         ]
     }
 ];

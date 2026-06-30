@@ -8,12 +8,13 @@ Le bot détecte et envoie des messages personnalisés pour :
 - **Cyberpunk 2077**
 - **Minecraft**
 - **R.E.P.O**
+- **Phasmophobia**
 
 ## Fonctionnalités
 
 - Surveille le statut (Presence) d'un utilisateur spécifique.
 - Envoie un message de rappel patriotique adapté au jeu détecté dès le début de la session.
-- Répète le rappel toutes les 20 minutes tant que l'utilisateur continue de jouer.
+- Répète le rappel toutes les 30 minutes tant que l'utilisateur continue de jouer.
 - Aléatise les messages pour un impact patriotique maximal.
 
 ## Prérequis
