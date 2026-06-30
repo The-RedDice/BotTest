@@ -1,5 +1,42 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits, ActivityType } = require('discord.js');
+const {
+    Client,
+    GatewayIntentBits,
+    ActivityType,
+    REST,
+    Routes,
+    SlashCommandBuilder,
+    PermissionFlagsBits
+} = require('discord.js');
+const fs = require('fs');
+const path = require('path');
+
+// Configuration initiale
+const CONFIG_PATH = path.join(__dirname, 'config.json');
+let config = {
+    targetUserId: process.env.TARGET_USER_ID || '1401153828195139757',
+    logChannelId: null
+};
+
+function loadConfig() {
+    if (fs.existsSync(CONFIG_PATH)) {
+        try {
+            config = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+        } catch (err) {
+            console.error("Erreur lors de la lecture de config.json:", err);
+        }
+    }
+}
+
+function saveConfig() {
+    try {
+        fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
+    } catch (err) {
+        console.error("Erreur lors de la sauvegarde de config.json:", err);
+    }
+}
+
+loadConfig();
 
 const client = new Client({
     intents: [
@@ -9,111 +46,125 @@ const client = new Client({
     ],
 });
 
-const TARGET_USER_ID = process.env.TARGET_USER_ID;
 const REMINDER_INTERVAL = 30 * 60 * 1000; // 30 minutes
 
-// Configuration des jeux et messages
 const GAME_CONFIGS = [
     {
         key: 'cyberpunk',
         searchTerms: ['cyberpunk'],
         messages: [
-            "Soldat ! L'Empire Français compte sur vous. Cessez vos activités futiles dans Night City et reprenez immédiatement le développement du bot de l'EF ! Le sort de la nation est entre vos mains.",
-            "L'Empereur Napoléon lui-même serait déçu de vous voir perdre votre temps sur Cyberpunk alors que le bot de l'EF n'attend que votre code. Au travail, pour la Gloire de l'Empire !",
-            "Citoyen ! La technologie de 2077 est une illusion. La seule réalité qui compte est le développement du bot de l'EF. Quittez ce jeu et servez la patrie !"
+            "Soldat ! L'Empire Français compte sur vous. Cessez vos activités futiles dans Night City et reprenez immédiatement le développement du bot de l'EF !",
+            "L'Empereur Napoléon lui-même serait déçu de vous voir perdre votre temps sur Cyberpunk. Au travail !"
         ]
     },
     {
         key: 'minecraft',
         searchTerms: ['minecraft'],
         messages: [
-            "Soldat ! Cessez de poser des blocs de terre et venez bâtir les fondations numériques de l'Empire ! Le bot de l'EF a besoin de vous.",
-            "L'Empire ne s'est pas construit en minant des cubes. Posez votre pioche et reprenez votre clavier pour le bot de l'EF !",
-            "Citoyen ! Les ressources de Minecraft sont virtuelles, mais le code du bot de l'EF est le moteur de notre souveraineté. Au travail !"
+            "Soldat ! Cessez de poser des blocs de terre et venez bâtir les fondations numériques de l'Empire !",
+            "L'Empire ne s'est pas construit en minant des cubes. Posez votre pioche !"
         ]
     },
     {
         key: 'repo',
         searchTerms: ['r.e.p.o', 'repo'],
         messages: [
-            "Soldat ! Récupérer des objets pour une corporation ? L'Empire est la seule entité digne de votre dévouement ! Revenez sur le bot de l'EF.",
-            "L'Empereur n'accepte aucun retard. Cessez vos expéditions dans R.E.P.O et concentrez-vous sur l'objectif principal : le bot de l'EF !",
-            "Citoyen ! Votre quota de code pour l'Empire n'est pas atteint. Quittez R.E.P.O et servez la France sur le bot de l'EF !"
+            "Soldat ! Récupérer des objets pour une corporation ? L'Empire est la seule entité digne de votre dévouement !",
+            "L'Empereur n'accepte aucun retard. Cessez vos expéditions dans R.E.P.O !"
         ]
     },
     {
         key: 'phasmophobia',
         searchTerms: ['phasmophobia'],
         messages: [
-            "Soldat ! Les seuls fantômes qui doivent vous préoccuper sont les bugs du bot de l'EF ! Lâchez votre lampe torche et reprenez le code.",
-            "L'Empire n'a pas peur des esprits, mais il craint le retard de ses projets. Quittez cette chasse aux fantômes et servez la patrie sur le bot de l'EF !",
-            "Citoyen ! Identifier des spectres ne fera pas avancer la France. Votre mission est claire : développer le bot de l'EF. Au rapport !"
+            "Soldat ! Les seuls fantômes qui doivent vous préoccuper sont les bugs du bot de l'EF !",
+            "L'Empire n'a pas peur des esprits. Quittez cette chasse aux fantômes !"
         ]
     }
 ];
 
 const activeReminders = new Map(); // userId -> { gameKey, intervalId }
 
+// --- LOGGING ---
+async function logToChannel(message) {
+    if (!config.logChannelId) return;
+    try {
+        const channel = await client.channels.fetch(config.logChannelId);
+        if (channel && channel.isTextBased()) {
+            await channel.send(`📜 **[LOGS EMPIRE]** ${message}`);
+        }
+    } catch (err) {
+        console.error("Erreur lors de l'envoi des logs:", err);
+    }
+}
+
+// --- UTILS ---
 function getGameConfig(activities) {
     if (!activities) return null;
-    for (const config of GAME_CONFIGS) {
+    for (const game of GAME_CONFIGS) {
         if (activities.some(activity =>
             activity.type === ActivityType.Playing &&
             activity.name &&
-            config.searchTerms.some(term => activity.name.toLowerCase().includes(term))
+            game.searchTerms.some(term => activity.name.toLowerCase().includes(term))
         )) {
-            return config;
+            return game;
         }
     }
     return null;
 }
 
-client.once('ready', async () => {
-    console.log(`Bot prêt en tant que ${client.user.tag}`);
-    console.log(`Cible surveillée : ${TARGET_USER_ID}`);
+// --- SLASH COMMANDS REGISTRATION ---
+const commands = [
+    new SlashCommandBuilder()
+        .setName('config-target')
+        .setDescription('Configure l\'ID de l\'utilisateur à surveiller')
+        .addStringOption(option =>
+            option.setName('user_id')
+                .setDescription('L\'ID Discord de la cible')
+                .setRequired(true))
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+    new SlashCommandBuilder()
+        .setName('config-logs')
+        .setDescription('Configure le salon de logs')
+        .addChannelOption(option =>
+            option.setName('channel')
+                .setDescription('Le salon où envoyer les logs')
+                .setRequired(true))
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+    new SlashCommandBuilder()
+        .setName('status')
+        .setDescription('Affiche la configuration actuelle du bot')
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+].map(command => command.toJSON());
 
-    // Vérification initiale de la présence au démarrage
+async function registerCommands() {
+    const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
     try {
-        const guilds = await client.guilds.fetch();
-        for (const [guildId] of guilds) {
-            const guild = await client.guilds.fetch(guildId);
-            try {
-                const member = await guild.members.fetch(TARGET_USER_ID);
-                if (member && member.presence) {
-                    console.log(`Présence initiale détectée pour ${TARGET_USER_ID} dans le serveur ${guild.name}`);
-                    handlePresenceChange(null, member.presence);
-                    break; // On a trouvé l'utilisateur, on peut arrêter la boucle
-                }
-            } catch (e) {
-                // L'utilisateur n'est probablement pas sur ce serveur
-            }
-        }
+        console.log('Début du rafraîchissement des slash commands...');
+        await rest.put(
+            Routes.applicationCommands(process.env.CLIENT_ID),
+            { body: commands },
+        );
+        console.log('Slash commands enregistrées avec succès.');
     } catch (error) {
-        console.error("Erreur lors de la vérification initiale de présence :", error);
+        console.error(error);
     }
-});
+}
 
+// --- HANDLERS ---
 async function handlePresenceChange(oldPresence, newPresence) {
-    if (!newPresence || newPresence.userId !== TARGET_USER_ID) return;
+    if (!newPresence || newPresence.userId !== config.targetUserId) return;
 
     const gameConfig = getGameConfig(newPresence.activities);
     const currentReminder = activeReminders.get(newPresence.userId);
 
     if (gameConfig) {
-        // Si l'utilisateur commence à jouer ou change pour un autre jeu surveillé
         if (!currentReminder || currentReminder.gameKey !== gameConfig.key) {
+            if (currentReminder) clearInterval(currentReminder.intervalId);
 
-            // Si un rappel pour un autre jeu tournait déjà, on l'arrête
-            if (currentReminder) {
-                clearInterval(currentReminder.intervalId);
-            }
+            await logToChannel(`L'utilisateur <@${newPresence.userId}> a commencé à jouer à **${gameConfig.key}**.`);
 
-            console.log(`L'utilisateur ${newPresence.userId} joue à ${gameConfig.key}. Lancement des rappels.`);
-
-            // Premier rappel immédiat
             sendReminder(newPresence.userId, gameConfig);
-
-            // Intervalle
             const intervalId = setInterval(() => {
                 sendReminder(newPresence.userId, gameConfig);
             }, REMINDER_INTERVAL);
@@ -121,16 +172,13 @@ async function handlePresenceChange(oldPresence, newPresence) {
             activeReminders.set(newPresence.userId, { gameKey: gameConfig.key, intervalId });
         }
     } else {
-        // Si l'utilisateur n'est plus sur un jeu surveillé
         if (currentReminder) {
-            console.log(`L'utilisateur ${newPresence.userId} a arrêté de jouer. Fin des rappels.`);
+            await logToChannel(`L'utilisateur <@${newPresence.userId}> a arrêté de jouer à **${currentReminder.gameKey}**.`);
             clearInterval(currentReminder.intervalId);
             activeReminders.delete(newPresence.userId);
         }
     }
 }
-
-client.on('presenceUpdate', handlePresenceChange);
 
 async function sendReminder(userId, config) {
     try {
@@ -138,14 +186,68 @@ async function sendReminder(userId, config) {
         if (user) {
             const message = config.messages[Math.floor(Math.random() * config.messages.length)];
             await user.send(`🇫🇷 **MESSAGE DE L'EMPIRE** 🇫🇷\n\n${message}`);
-            console.log(`Rappel [${config.key}] envoyé à ${user.tag} (${new Date().toLocaleTimeString()})`);
+            console.log(`Rappel [${config.key}] envoyé à ${user.tag}`);
         }
     } catch (error) {
-        console.error(`Erreur lors de l'envoi du message :`, error);
+        console.error(`Erreur d'envoi MP à ${userId}:`, error);
     }
 }
 
-client.on('error', console.error);
-process.on('unhandledRejection', error => console.error('Promesse non gérée :', error));
+// --- BOT EVENTS ---
+client.once('ready', async () => {
+    console.log(`Bot prêt : ${client.user.tag}`);
+    if (process.env.CLIENT_ID) await registerCommands();
+
+    // Init check
+    try {
+        const guilds = await client.guilds.fetch();
+        for (const [guildId] of guilds) {
+            const guild = await client.guilds.fetch(guildId);
+            try {
+                const member = await guild.members.fetch(config.targetUserId);
+                if (member && member.presence) {
+                    handlePresenceChange(null, member.presence);
+                    break;
+                }
+            } catch (e) {}
+        }
+    } catch (err) { console.error(err); }
+});
+
+client.on('presenceUpdate', handlePresenceChange);
+
+client.on('interactionCreate', async interaction => {
+    if (!interaction.isChatInputCommand()) return;
+
+    if (interaction.commandName === 'config-target') {
+        const newId = interaction.options.getString('user_id');
+        config.targetUserId = newId;
+        saveConfig();
+
+        // Reset reminders if target changed
+        for (const [uid, rem] of activeReminders) {
+            clearInterval(rem.intervalId);
+        }
+        activeReminders.clear();
+
+        await interaction.reply({ content: `✅ Cible mise à jour : <@${newId}> (${newId})`, ephemeral: true });
+        await logToChannel(`Nouvelle cible configurée par ${interaction.user.tag} : <@${newId}>`);
+    }
+
+    if (interaction.commandName === 'config-logs') {
+        const channel = interaction.options.getChannel('channel');
+        config.logChannelId = channel.id;
+        saveConfig();
+        await interaction.reply({ content: `✅ Salon de logs mis à jour : ${channel}`, ephemeral: true });
+        await logToChannel(`Ce salon a été configuré pour les logs par ${interaction.user.tag}.`);
+    }
+
+    if (interaction.commandName === 'status') {
+        await interaction.reply({
+            content: `📊 **Statut de l'Empire** :\n- **Cible** : <@${config.targetUserId}>\n- **Logs** : ${config.logChannelId ? `<#${config.logChannelId}>` : 'Non configuré'}\n- **Intervalle** : 30 minutes`,
+            ephemeral: true
+        });
+    }
+});
 
 client.login(process.env.DISCORD_TOKEN);

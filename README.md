@@ -12,34 +12,37 @@ Le bot détecte et envoie des messages personnalisés pour :
 
 ## Fonctionnalités
 
-- Surveille le statut (Presence) d'un utilisateur spécifique.
-- Envoie un message de rappel patriotique adapté au jeu détecté dès le début de la session.
-- Répète le rappel toutes les 30 minutes tant que l'utilisateur continue de jouer.
-- Aléatise les messages pour un impact patriotique maximal.
+- **Surveillance de Présence** : Détecte quand la cible joue à un jeu surveillé.
+- **Rappels en MP** : Envoie un message patriotique toutes les 30 minutes.
+- **Logs de l'Empire** : Envoie des notifications dans un salon de logs quand l'utilisateur commence/arrête de jouer.
+- **Configuration Dynamique** : Modifiez la cible et le salon de logs via des commandes Slash.
 
-## Prérequis
+## Commandes Slash (Admin seulement)
 
-- Node.js (version 16.9.0 ou supérieure)
-- Un jeton (token) de bot Discord
+- `/config-target [user_id]` : Définit l'utilisateur à surveiller.
+- `/config-logs [#channel]` : Définit le salon où envoyer les notifications d'activité.
+- `/status` : Affiche la configuration actuelle.
 
 ## Configuration du Bot Discord
 
 1. Allez sur le [Discord Developer Portal](https://discord.com/developers/applications).
 2. Créez une nouvelle application et un bot.
-3. **IMPORTANT** : Dans la section "Bot", activez l'option **"Presence Intent"** sous "Privileged Gateway Intents". Sans cela, le bot ne pourra pas voir à quoi joue l'utilisateur.
-4. Activez également "Server Members Intent".
-5. Invitez le bot sur un serveur où l'utilisateur cible est présent.
+3. **Privileged Gateway Intents** : Activez **"Presence Intent"** et **"Server Members Intent"**.
+4. **OAuth2 URL Generator** : Sélectionnez les scopes `bot` et `applications.commands`.
+5. **Permissions du bot** : `Read Messages/View Channels`, `Send Messages`, `Embed Links`.
+6. Invitez le bot sur votre serveur.
 
 ## Installation et Lancement
 
-1. Clonez ce dépôt (ou copiez les fichiers `index.js`, `package.json`, `.env.example`).
+1. Clonez ce dépôt.
 2. Installez les dépendances :
    ```bash
    npm install
    ```
-3. Créez un fichier `.env` à la racine du projet :
+3. Créez un fichier `.env` basé sur `.env.example` :
    ```env
-   DISCORD_TOKEN=votre_token_ici
+   DISCORD_TOKEN=votre_token
+   CLIENT_ID=votre_application_id
    TARGET_USER_ID=1401153828195139757
    ```
 4. Lancez le bot :
@@ -49,40 +52,17 @@ Le bot détecte et envoie des messages personnalisés pour :
 
 ## Setup sur Oracle Cloud (Ubuntu)
 
-Voici la marche à suivre pour héberger le bot sur une instance Oracle Cloud Ubuntu :
-
 1. **Installation de Node.js** :
    ```bash
-   sudo apt update
-   sudo apt install -y ca-certificates curl gnupg
-   sudo mkdir -p /etc/apt/keyrings
-   curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | sudo gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
-   NODE_MAJOR=20
-   echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_$NODE_MAJOR.x nodistro main" | sudo tee /etc/apt/sources.list.d/nodesource.list
-   sudo apt update
-   sudo apt install nodejs -y
+   curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+   sudo apt install -y nodejs
    ```
-
-2. **Récupération du code** :
-   Clonez votre dépôt ou transférez les fichiers via SCP/SFTP.
-
-3. **Installation des dépendances** :
-   ```bash
-   cd chemin/vers/le/bot
-   npm install
-   ```
-
-4. **Configuration** :
-   Créez le fichier `.env` comme expliqué plus haut.
-
-5. **Gestion du processus avec PM2** (pour que le bot tourne 24h/24) :
+2. **Gestion avec PM2** :
    ```bash
    sudo npm install -g pm2
    pm2 start index.js --name "bot-ef"
    pm2 save
    pm2 startup
    ```
-
-Note : Le dossier `node_modules` contient les bibliothèques nécessaires au fonctionnement du bot mais ne doit pas être modifié ou inclus dans vos transferts de code (utilisez `npm install` pour le régénérer).
 
 Vive l'Empire ! 🇫🇷
