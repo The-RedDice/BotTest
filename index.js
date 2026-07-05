@@ -102,6 +102,16 @@ const GAME_CONFIGS = [
             ["Votre peur des esprits vous rend faible. L'Empire demande de la force et du code !"],
             ["ESPRIT, ES-TU LÀ ? OUI, ET IL VEUT QUE TU ARRÊTES DE JOUER ET QUE TU BOSSES !"]
         ]
+    },
+    {
+        key: 'Geometry Dash',
+        searchTerms: ['geometry dash'],
+        congrats: "Le cube s'est arrêté. L'Empire espère que votre agilité se transportera maintenant sur le code du bot de l'EF !",
+        levels: [
+            ["Soldat ! Cessez de sauter par-dessus des triangles et venez coder le bot de l'EF !"],
+            ["Caporal ! Votre rythme est mauvais. Le seul tempo qui compte est celui du développement impérial !"],
+            ["TRAÎTRE ! Vous préférez un cube qui saute à la gloire de l'Empire ? AU TRAVAIL !"]
+        ]
     }
 ];
 

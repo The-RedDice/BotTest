@@ -9,6 +9,7 @@ Le bot détecte et envoie des messages personnalisés pour :
 - **Minecraft**
 - **R.E.P.O**
 - **Phasmophobia**
+- **Geometry Dash**
 
 ## Fonctionnalités
 
