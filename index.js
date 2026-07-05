@@ -62,6 +62,7 @@ const client = new Client({
 
 const REMINDER_INTERVAL = 30 * 60 * 1000;
 
+// Configurations prédéfinies (fallback si pas d'IA ou si le jeu correspond)
 const GAME_CONFIGS = [
     {
         key: 'Cyberpunk',
@@ -127,9 +128,31 @@ async function logToChannel(message) {
 
 function getGameConfig(activities) {
     if (!activities) return null;
+
+    // 1. Chercher dans les configs prédéfinies
     for (const game of GAME_CONFIGS) {
-        if (activities.some(act => act.type === ActivityType.Playing && act.name && game.searchTerms.some(t => act.name.toLowerCase().includes(t)))) return game;
+        if (activities.some(act => act.type === ActivityType.Playing && act.name && game.searchTerms.some(t => act.name.toLowerCase().includes(t)))) {
+            return game;
+        }
     }
+
+    // 2. Si IA activée, prendre n'importe quel jeu détecté
+    if (config.aiEnabled) {
+        const playingActivity = activities.find(act => act.type === ActivityType.Playing && act.name);
+        if (playingActivity) {
+            return {
+                key: playingActivity.name,
+                isGeneric: true,
+                congrats: `L'Empire vous félicite d'avoir arrêté de jouer à ${playingActivity.name}.`,
+                levels: [
+                    [`Soldat ! Arrêtez de jouer à ${playingActivity.name} et venez développer le bot de l'EF !`],
+                    [`Caporal ! ${playingActivity.name} est une perte de temps pour la nation. Au travail !`],
+                    [`TRAHISON ! Délaisser le bot de l'EF pour ${playingActivity.name} est impardonnable ! CESSEZ !`]
+                ]
+            };
+        }
+    }
+
     return null;
 }
 
@@ -137,15 +160,13 @@ const commands = [
     new SlashCommandBuilder().setName('config-target').setDescription('ID de l\'utilisateur à surveiller').addStringOption(o => o.setName('user_id').setDescription('ID Discord').setRequired(true)).setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
     new SlashCommandBuilder().setName('config-logs').setDescription('Salon de logs').addChannelOption(o => o.setName('channel').setDescription('Salon textuel').setRequired(true)).setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
     new SlashCommandBuilder().setName('config-adaptive').setDescription('Active/Désactive le mode adaptatif (énervement)').addBooleanOption(o => o.setName('enabled').setDescription('Activer ?').setRequired(true)).setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
-    new SlashCommandBuilder().setName('config-ai').setDescription('Configure l\'IA OpenRouter').addBooleanOption(o => o.setName('enabled').setDescription('Activer l\'IA ?').setRequired(true)).addStringOption(o => o.setName('model').setDescription('Modèle OpenRouter (ex: google/gemma-7b-it:free)')).setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+    new SlashCommandBuilder().setName('config-ai').setDescription('Configure l\'IA OpenRouter').addBooleanOption(o => o.setName('enabled').setDescription('Activer l\'IA pour TOUS les jeux ?').setRequired(true)).addStringOption(o => o.setName('model').setDescription('Modèle OpenRouter (ex: google/gemma-7b-it:free)')).setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
     new SlashCommandBuilder().setName('status').setDescription('Affiche la configuration').setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
 ].map(c => c.toJSON());
 
 async function registerCommands() {
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
-    try {
-        await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { body: commands });
-    } catch (e) { console.error(e); }
+    try { await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { body: commands }); } catch (e) { console.error(e); }
 }
 
 async function handlePresenceChange(oldPresence, newPresence) {
@@ -167,11 +188,11 @@ async function handlePresenceChange(oldPresence, newPresence) {
     } else if (current) {
         try {
             const user = await client.users.fetch(newPresence.userId);
-            const game = GAME_CONFIGS.find(g => g.key === current.gameKey);
+            const game = GAME_CONFIGS.find(g => g.key === current.gameKey) || { key: current.gameKey, congrats: `L'Empire vous félicite d'avoir arrêté de jouer à ${current.gameKey}.` };
 
-            let content = game ? game.congrats : "Bien joué !";
+            let content = game.congrats;
             if (config.aiEnabled && process.env.OPENROUTER_API_KEY) {
-                const aiMsg = await generateAIMessage(`Tu es un officier de l'Empire Français. L'utilisateur vient d'arrêter de jouer à ${current.gameKey}. Félicite-le très brièvement et dis-lui de retourner développer le bot de l'EF.`);
+                const aiMsg = await generateAIMessage(`Tu es un officier de l'Empire Français. L'utilisateur vient d'arrêter de jouer à ${current.gameKey}. Félicite-le très brièvement (1-2 phrases) et dis-lui de retourner développer le bot de l'EF pour la gloire de la nation.`);
                 if (aiMsg) content = aiMsg;
             }
 
@@ -190,25 +211,19 @@ async function sendReminder(userId, game, count) {
 
         let content = "";
         if (config.aiEnabled && process.env.OPENROUTER_API_KEY) {
-            let tone = "ferme et patriotique";
+            let tone = "ferme, autoritaire et patriotique";
             if (config.adaptiveMode) {
-                if (count >= 3) tone = "FURIEUX, HURLANT, ACCUSANT DE TRAHISON";
-                else if (count >= 2) tone = "très agacé et impatient";
+                if (count >= 3) tone = "FURIEUX, HURLANT, ACCUSANT DE HAUTE TRAHISON ENVERS L'EMPEREUR";
+                else if (count >= 2) tone = "très agacé, impatient et menaçant d'envoyer la garde impériale";
             }
-            const prompt = `Tu es un officier de l'Empire Français. L'utilisateur est en train de jouer à ${game.key} au lieu de développer le bot de l'EF. C'est son rappel n°${count}. Ton ton est ${tone}. Ordonne-lui brièvement de quitter son jeu et de retourner au travail. Ne fais pas de longs discours.`;
-            const aiMsg = await generateAIMessage(prompt);
-            if (aiMsg) content = aiMsg;
+            const prompt = `Tu es un officier de l'Empire Français. L'utilisateur joue à ${game.key} au lieu de développer le bot de l'EF. C'est son rappel n°${count}. Ton ton est ${tone}. Ordonne-lui brièvement de quitter ce jeu futil et de retourner au travail pour la gloire de l'Empire. Ne fais pas de longs discours.`;
+            content = await generateAIMessage(prompt);
         }
 
         if (!content) {
-            if (config.adaptiveMode) {
-                const levelIdx = count >= 3 ? 2 : (count >= 2 ? 1 : 0);
-                const msgs = game.levels[levelIdx];
-                content = msgs[Math.floor(Math.random() * msgs.length)];
-            } else {
-                const allMsgs = game.levels.flat();
-                content = allMsgs[Math.floor(Math.random() * allMsgs.length)];
-            }
+            const levelIdx = count >= 3 ? 2 : (count >= 2 ? 1 : 0);
+            const msgs = game.levels[levelIdx];
+            content = msgs[Math.floor(Math.random() * msgs.length)];
         }
 
         await user.send(`🇫🇷 **MESSAGE DE L'EMPIRE** 🇫🇷\n\n${content}`);
@@ -255,7 +270,7 @@ client.on('interactionCreate', async interaction => {
         const model = interaction.options.getString('model');
         if (model) config.aiModel = model;
         saveConfig();
-        await interaction.reply({ content: `✅ IA **${config.aiEnabled ? 'Activée' : 'Désactivée'}** (Modèle: ${config.aiModel})`, ephemeral: true });
+        await interaction.reply({ content: `✅ IA **${config.aiEnabled ? 'Activée' : 'Désactivée'}** pour TOUS les jeux détectés (Modèle: ${config.aiModel})`, ephemeral: true });
     }
     if (interaction.commandName === 'status') {
         await interaction.reply({
