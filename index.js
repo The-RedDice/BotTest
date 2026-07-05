@@ -45,12 +45,21 @@ async function generateAIMessage(prompt) {
         }, {
             headers: {
                 "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://github.com/The-RedDice/BotTest",
+                "X-Title": "Bot EF Reminder"
             }
         });
         return response.data.choices[0].message.content.trim();
     } catch (err) {
-        console.error("Erreur OpenRouter:", err.response?.data || err.message);
+        let errorMsg = err.response?.data?.error?.message || err.message;
+        if (err.response?.status === 429) {
+            console.error("Débit limité (Rate Limit) sur OpenRouter. Essayez un autre modèle gratuit.");
+            logToChannel(`⚠️ L'IA est saturée (Rate Limit). Passage en mode manuel.`);
+        } else {
+            console.error("Erreur OpenRouter:", errorMsg);
+            logToChannel(`⚠️ Erreur IA : ${errorMsg}. Passage en mode manuel.`);
+        }
         return null;
     }
 }
@@ -192,7 +201,7 @@ async function handlePresenceChange(oldPresence, newPresence) {
 
             let content = game.congrats;
             if (config.aiEnabled && process.env.OPENROUTER_API_KEY) {
-                const aiMsg = await generateAIMessage(`Tu es un officier de l'Empire Français. L'utilisateur vient d'arrêter de jouer à ${current.gameKey}. Félicite-le très brièvement (1-2 phrases) et dis-lui de retourner développer le bot de l'EF pour la gloire de la nation.`);
+                const aiMsg = await generateAIMessage(`Tu es un officier de l'Empire Français. L'utilisateur vient d'arrêter de jouer au jeu "${current.gameKey}". Félicite-le très brièvement (1-2 phrases) en utilisant une métaphore ou un terme lié à l'univers de ce jeu, et ordonne-lui de retourner développer le bot de l'EF pour la gloire de la nation.`);
                 if (aiMsg) content = aiMsg;
             }
 
@@ -216,7 +225,7 @@ async function sendReminder(userId, game, count) {
                 if (count >= 3) tone = "FURIEUX, HURLANT, ACCUSANT DE HAUTE TRAHISON ENVERS L'EMPEREUR";
                 else if (count >= 2) tone = "très agacé, impatient et menaçant d'envoyer la garde impériale";
             }
-            const prompt = `Tu es un officier de l'Empire Français. L'utilisateur joue à ${game.key} au lieu de développer le bot de l'EF. C'est son rappel n°${count}. Ton ton est ${tone}. Ordonne-lui brièvement de quitter ce jeu futil et de retourner au travail pour la gloire de l'Empire. Ne fais pas de longs discours.`;
+            const prompt = `Tu es un officier de l'Empire Français. L'utilisateur est en train de perdre son temps sur le jeu "${game.key}" au lieu de développer le bot de l'EF. C'est son rappel n°${count}. Ton ton est ${tone}. Ordonne-lui brièvement de quitter ce jeu et de retourner au travail pour la gloire de l'Empire. Intègre des éléments ou du vocabulaire spécifique à l'univers de "${game.key}" pour te moquer de son activité ou souligner son inutilité par rapport au bot de l'EF. Ne fais pas de longs discours.`;
             content = await generateAIMessage(prompt);
         }
 

@@ -1,0 +1,6 @@
+node_modules
+.env
+package-lock.json
+# config.json est ignoré pour éviter les conflits lors des pulls
+# car il contient vos réglages personnalisés
+config.json
