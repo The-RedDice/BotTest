@@ -10,7 +10,18 @@ const {
 } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
-const axios = require('axios');
+
+// --- PUTER INTEGRATION ---
+let puter = null;
+try {
+    const { init } = require('@heyputer/puter.js/src/init.cjs');
+    puter = init();
+    if (process.env.PUTER_AUTH_TOKEN) {
+        puter.setAuthToken(process.env.PUTER_AUTH_TOKEN);
+    }
+} catch (err) {
+    console.error("Erreur initialisation Puter:", err);
+}
 
 // --- PERSISTENCE ---
 const CONFIG_PATH = path.join(__dirname, 'config.json');
@@ -19,7 +30,7 @@ let config = {
     logChannelId: null,
     adaptiveMode: false,
     aiEnabled: false,
-    aiModel: "google/gemma-7b-it:free"
+    aiModel: "gpt-4o-mini"
 };
 
 function loadConfig() {
@@ -35,31 +46,15 @@ function saveConfig() {
 }
 loadConfig();
 
-// --- AI INTEGRATION (OPENROUTER) ---
+// --- AI INTEGRATION (PUTER) ---
 async function generateAIMessage(prompt) {
-    if (!process.env.OPENROUTER_API_KEY) return null;
+    if (!puter || !config.aiEnabled) return null;
     try {
-        const response = await axios.post("https://openrouter.ai/api/v1/chat/completions", {
-            model: config.aiModel,
-            messages: [{ role: "user", content: prompt }]
-        }, {
-            headers: {
-                "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
-                "Content-Type": "application/json",
-                "HTTP-Referer": "https://github.com/The-RedDice/BotTest",
-                "X-Title": "Bot EF Reminder"
-            }
-        });
-        return response.data.choices[0].message.content.trim();
+        const response = await puter.ai.chat(prompt, { model: config.aiModel });
+        return response?.toString().trim();
     } catch (err) {
-        let errorMsg = err.response?.data?.error?.message || err.message;
-        if (err.response?.status === 429) {
-            console.error("Débit limité (Rate Limit) sur OpenRouter. Essayez un autre modèle gratuit.");
-            logToChannel(`⚠️ L'IA est saturée (Rate Limit). Passage en mode manuel.`);
-        } else {
-            console.error("Erreur OpenRouter:", errorMsg);
-            logToChannel(`⚠️ Erreur IA : ${errorMsg}. Passage en mode manuel.`);
-        }
+        console.error("Erreur Puter AI:", err);
+        logToChannel(`⚠️ Erreur IA Puter: ${err.message || err}. Passage en mode manuel.`);
         return null;
     }
 }
@@ -71,7 +66,7 @@ const client = new Client({
 
 const REMINDER_INTERVAL = 30 * 60 * 1000;
 
-// Configurations prédéfinies (fallback si pas d'IA ou si le jeu correspond)
+// Configurations prédéfinies
 const GAME_CONFIGS = [
     {
         key: 'Cyberpunk',
@@ -137,15 +132,11 @@ async function logToChannel(message) {
 
 function getGameConfig(activities) {
     if (!activities) return null;
-
-    // 1. Chercher dans les configs prédéfinies
     for (const game of GAME_CONFIGS) {
         if (activities.some(act => act.type === ActivityType.Playing && act.name && game.searchTerms.some(t => act.name.toLowerCase().includes(t)))) {
             return game;
         }
     }
-
-    // 2. Si IA activée, prendre n'importe quel jeu détecté
     if (config.aiEnabled) {
         const playingActivity = activities.find(act => act.type === ActivityType.Playing && act.name);
         if (playingActivity) {
@@ -161,7 +152,6 @@ function getGameConfig(activities) {
             };
         }
     }
-
     return null;
 }
 
@@ -169,7 +159,7 @@ const commands = [
     new SlashCommandBuilder().setName('config-target').setDescription('ID de l\'utilisateur à surveiller').addStringOption(o => o.setName('user_id').setDescription('ID Discord').setRequired(true)).setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
     new SlashCommandBuilder().setName('config-logs').setDescription('Salon de logs').addChannelOption(o => o.setName('channel').setDescription('Salon textuel').setRequired(true)).setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
     new SlashCommandBuilder().setName('config-adaptive').setDescription('Active/Désactive le mode adaptatif (énervement)').addBooleanOption(o => o.setName('enabled').setDescription('Activer ?').setRequired(true)).setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
-    new SlashCommandBuilder().setName('config-ai').setDescription('Configure l\'IA OpenRouter').addBooleanOption(o => o.setName('enabled').setDescription('Activer l\'IA pour TOUS les jeux ?').setRequired(true)).addStringOption(o => o.setName('model').setDescription('Modèle OpenRouter (ex: google/gemma-7b-it:free)')).setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+    new SlashCommandBuilder().setName('config-ai').setDescription('Configure l\'IA Puter').addBooleanOption(o => o.setName('enabled').setDescription('Activer l\'IA ?').setRequired(true)).addStringOption(o => o.setName('model').setDescription('Modèle Puter (ex: gpt-4o-mini)')).setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
     new SlashCommandBuilder().setName('status').setDescription('Affiche la configuration').setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
 ].map(c => c.toJSON());
 
@@ -197,14 +187,11 @@ async function handlePresenceChange(oldPresence, newPresence) {
     } else if (current) {
         try {
             const user = await client.users.fetch(newPresence.userId);
-            const game = GAME_CONFIGS.find(g => g.key === current.gameKey) || { key: current.gameKey, congrats: `L'Empire vous félicite d'avoir arrêté de jouer à ${current.gameKey}.` };
-
-            let content = game.congrats;
-            if (config.aiEnabled && process.env.OPENROUTER_API_KEY) {
+            let content = `L'Empire vous félicite d'avoir arrêté de jouer à ${current.gameKey}.`;
+            if (config.aiEnabled && puter) {
                 const aiMsg = await generateAIMessage(`Tu es un officier de l'Empire Français. L'utilisateur vient d'arrêter de jouer au jeu "${current.gameKey}". Félicite-le très brièvement (1-2 phrases) en utilisant une métaphore ou un terme lié à l'univers de ce jeu, et ordonne-lui de retourner développer le bot de l'EF pour la gloire de la nation.`);
                 if (aiMsg) content = aiMsg;
             }
-
             await user.send(`🇫🇷 **VICTOIRE DE L'EMPIRE** 🇫🇷\n\n${content}`);
             await logToChannel(`Fin de session (**${current.gameKey}**). Utilisateur félicité.`);
         } catch (e) {}
@@ -219,7 +206,7 @@ async function sendReminder(userId, game, count) {
         if (!user) return;
 
         let content = "";
-        if (config.aiEnabled && process.env.OPENROUTER_API_KEY) {
+        if (config.aiEnabled && puter) {
             let tone = "ferme, autoritaire et patriotique";
             if (config.adaptiveMode) {
                 if (count >= 3) tone = "FURIEUX, HURLANT, ACCUSANT DE HAUTE TRAHISON ENVERS L'EMPEREUR";
@@ -236,7 +223,7 @@ async function sendReminder(userId, game, count) {
         }
 
         await user.send(`🇫🇷 **MESSAGE DE L'EMPIRE** 🇫🇷\n\n${content}`);
-        console.log(`Rappel [${game.key}] #${count} envoyé à ${user.tag} (AI: ${config.aiEnabled})`);
+        console.log(`Rappel [${game.key}] #${count} envoyé à ${user.tag} (AI Puter: ${config.aiEnabled})`);
     } catch (e) { console.error(e); }
 }
 
@@ -279,11 +266,11 @@ client.on('interactionCreate', async interaction => {
         const model = interaction.options.getString('model');
         if (model) config.aiModel = model;
         saveConfig();
-        await interaction.reply({ content: `✅ IA **${config.aiEnabled ? 'Activée' : 'Désactivée'}** pour TOUS les jeux détectés (Modèle: ${config.aiModel})`, ephemeral: true });
+        await interaction.reply({ content: `✅ IA Puter **${config.aiEnabled ? 'Activée' : 'Désactivée'}** (Modèle: ${config.aiModel})`, ephemeral: true });
     }
     if (interaction.commandName === 'status') {
         await interaction.reply({
-            content: `📊 **Statut Empire** :\n- **Cible** : <@${config.targetUserId}>\n- **Logs** : ${config.logChannelId ? `<#${config.logChannelId}>` : 'Non'}\n- **Adaptatif** : ${config.adaptiveMode}\n- **IA** : ${config.aiEnabled} (${config.aiModel})`,
+            content: `📊 **Statut Empire** :\n- **Cible** : <@${config.targetUserId}>\n- **Logs** : ${config.logChannelId ? `<#${config.logChannelId}>` : 'Non'}\n- **Adaptatif** : ${config.adaptiveMode}\n- **IA Puter** : ${config.aiEnabled} (${config.aiModel})`,
             ephemeral: true
         });
     }

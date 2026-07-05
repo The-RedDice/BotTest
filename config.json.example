@@ -3,5 +3,5 @@
   "logChannelId": null,
   "adaptiveMode": false,
   "aiEnabled": false,
-  "aiModel": "google/gemma-7b-it:free"
+  "aiModel": "gpt-4o-mini"
 }
